@@ -66,6 +66,44 @@
                  (= (:command %) :OFF))
             notes)))
 
+(defn make-processor
+  []
+  {:on {} :notes []})
+
+(defn on-key
+  [note]
+  (keyword (str (-> note :data first) "|" (:channel note))))
+
+(defn add-note
+  [notes tick off]
+  (if tick
+    (conj notes {:begin tick
+                 :end (:tick off)
+                 :note (-> off :data first)})
+    notes))
+
+(defn dissoc-in
+  [data keys]
+  (update-in data (butlast keys) #(dissoc % (last keys))))
+
+(defn process-note
+  [process note]
+  (let [note-key (on-key note)]
+    (condp = (:command note)
+      :ON (assoc-in process [:on note-key] (:tick note))
+      :OFF (let [added (update-in process [:notes] #(add-note % (-> process :on note-key) note))]
+             (dissoc-in added [:on note-key]))
+      process)))
+
 (defn process-notes
   [notes]
-  )
+  (let [process (reduce process-note (make-processor) notes)]
+    (sort-by :begin (get process :notes))))
+
+(defn pull-notes
+  "Given a midi sequence, extract and process notes into the form
+  {:begin A :end B :note C}"
+  [midi]
+  (let [tracks (extract-tracks midi)
+        notes (filter-notes tracks)]
+    (process-notes notes)))
