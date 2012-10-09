@@ -15,8 +15,17 @@
 ;; reading and playing sequences -------------------
 
 (defn read-midi
-  [filename]
-  (MidiSystem/getSequence (io/file filename)))
+  [midi]
+  (MidiSystem/getSequence midi))
+
+(defn open-fugue
+  [book number]
+  (let [book-prefix (if (= book 2) "ii")]
+    (io/resource (str "bach/r-pf" book-prefix (format "%02d" number) ".mid"))))
+
+(defn fugue-sequence
+  [book number]
+  (read-midi (open-fugue book number)))
 
 (defn open-sequence
   [midi]
@@ -107,3 +116,130 @@
   (let [tracks (extract-tracks midi)
         notes (filter-notes tracks)]
     (process-notes notes)))
+
+(defn fugue-notes
+  [book number]
+  (pull-notes (fugue-sequence book number)))
+
+(defn- update-diff-pile
+  [pile n]
+  (let [diff (- n (:previous pile))
+        added (update-in pile [:diffs] #(conj % diff))]
+    (assoc added :previous n)))
+
+(defn map-differences
+  [events]
+  (let [basis {:previous (first events) :diffs '()}
+        intervals (reduce update-diff-pile basis events)]
+    (reverse (:diffs intervals))))
+
+(defn assoc-diff
+  [notes]
+  (let [diffs (map-differences (map :begin notes))
+        ids (take (count diffs) (iterate inc 1))]
+    (map (fn [note diff id] (assoc note :diff diff :id id)) notes diffs ids)))
+
+(defn split-every
+  [pred s]
+  (let [reduction
+        (reduce
+         (fn [col item]
+           (if (pred item)
+             (let [updated (update-in col [:split] #(conj % (reverse (:pool col))))]
+               (assoc updated :pool (list item)))
+             (update-in col [:pool] #(conj % item))))
+         {:split '() :pool []} s)]
+    (reverse (conj (:split reduction) (reverse (:pool reduction))))))
+
+(defn group-notes
+  [notes]
+  (split-every #(> (:diff %) 10) notes))
+
+(defn split-prelude-fugue
+  [notes]
+  (let [diffs (map-differences (map :begin notes))
+        max-diff (apply max diffs)
+        index (.indexOf diffs max-diff)
+        [prelude fugue] (split-at index notes)]
+    {:prelude (assoc-diff prelude) :fugue (assoc-diff fugue)}))
+
+(defn read-fugue
+  [book number]
+  (split-prelude-fugue (fugue-notes book number)))
+
+(defn within?
+  [note n]
+  (and (>= n (:begin note))
+       (<= n (:end note))))
+
+(defn coincide?
+  [pre post]
+  (or (within? pre (:begin post))
+      (within? pre (:end post))
+      (within? post (:begin pre))
+      (within? post (:end pre))))
+
+(defn bicleave
+  [pred s]
+  (reduce
+   (fn [[yes no] item]
+     (if (pred item)
+       [(conj yes item) no]
+       [yes (conj no item)]))
+   [[] []] s))
+
+(defn still-playing?
+  [note new-note]
+  (>= (:end note) (:begin new-note)))
+
+(defn filter-playing
+  [notes new-note]
+  (bicleave #(still-playing? % new-note) notes))
+
+(defn find-min
+  "Given comparator c and projection f, find the minimum value for f in s."
+  [c f s]
+  (if-not (empty? s)
+    (let [head (first s)
+          reduction (reduce
+                     (fn [closest el]
+                       (let [value (f el)]
+                         (if (c value (:value closest))
+                           {:value value :el el}
+                           closest)))
+                     {:value (f head) :el head}
+                     (rest s))]
+      (:el reduction))))
+     
+(defn surrounding-notes
+  [note preceding continuing peers]
+  (let [closest (find-min <
+                 #(Math/abs (- (:note note) (:note %)))
+                 (concat preceding continuing))]
+    (assoc note
+      :preceding (map :id preceding)
+      :during (map :id (concat continuing peers))
+      :relative (if closest
+                  (- (:note note) (:note closest))
+                  0))))
+
+(defn update-coincidents
+  [co note-group]
+  (let [[during just-preceding] (filter-playing (:continuing co) (last note-group))
+        updated (reduce
+                 (fn [co note]
+                   (let [preceding (concat (:preceding co) just-preceding)
+                         peers (remove #(= (:id %) (:id note)) note-group)
+                         surrounding (surrounding-notes note preceding during peers)]
+                     (update-in co [:notes] #(conj % surrounding))))
+                 co note-group)]
+    (assoc updated
+      :preceding note-group
+      :continuing (concat during note-group))))
+
+(defn find-coincidents
+  [notes]
+  (let [basis {:preceding [] :continuing [] :notes []}
+        groups (group-notes notes)]
+    (:notes (reduce update-coincidents basis groups))))
+
