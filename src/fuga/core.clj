@@ -1,5 +1,6 @@
 (ns fuga.core
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [clojure.set :as set])
   (:import (javax.sound.midi MidiSystem Sequencer)))
 
 (def command-map
@@ -197,7 +198,7 @@
   (bicleave #(still-playing? % new-note) notes))
 
 (defn find-min
-  "Given comparator c and projection f, find the minimum value for f in s."
+  "Given comparator c and projection f, find the minimum value for f in sequence s."
   [c f s]
   (if-not (empty? s)
     (let [head (first s)
@@ -228,18 +229,34 @@
   (let [[during just-preceding] (filter-playing (:continuing co) (last note-group))
         updated (reduce
                  (fn [co note]
-                   (let [preceding (concat (:preceding co) just-preceding)
+                   (let [preceding (set/union (:preceding co) (set just-preceding))
                          peers (remove #(= (:id %) (:id note)) note-group)
                          surrounding (surrounding-notes note preceding during peers)]
                      (update-in co [:notes] #(conj % surrounding))))
                  co note-group)]
     (assoc updated
-      :preceding note-group
+      :preceding (set note-group)
       :continuing (concat during note-group))))
 
 (defn find-coincidents
   [notes]
-  (let [basis {:preceding [] :continuing [] :notes []}
+  (let [basis {:preceding #{} :continuing [] :notes []}
         groups (group-notes notes)]
     (:notes (reduce update-coincidents basis groups))))
+
+(defn reference-pool
+  [notes]
+  (fn [references]
+    (map #(select-keys (nth notes (dec %)) [:relative :note]) references)))
+
+(defn find-note-references
+  [notes note]
+  (let [pool (reference-pool notes)]
+    (-> note
+        (update-in [:preceding] pool)
+        (update-in [:during] pool))))
+
+(defn apply-note-references
+  [notes coincidents]
+  (map (partial find-note-references notes) coincidents))
 
