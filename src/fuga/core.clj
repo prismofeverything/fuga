@@ -13,6 +13,8 @@
    \e :PITCHBEND
    \f :SYSTEM})
 
+(def tick-buffer 10)
+
 ;; reading and playing sequences -------------------
 
 (defn read-midi
@@ -154,7 +156,7 @@
 
 (defn group-notes
   [notes]
-  (split-every #(> (:diff %) 10) notes))
+  (split-every #(> (:diff %) tick-buffer) notes))
 
 (defn split-prelude-fugue
   [notes]
@@ -191,7 +193,7 @@
 
 (defn still-playing?
   [note new-note]
-  (>= (:end note) (:begin new-note)))
+  (>= (- (:end note) tick-buffer) (:begin new-note)))
 
 (defn filter-playing
   [notes new-note]
@@ -244,14 +246,28 @@
         groups (group-notes notes)]
     (:notes (reduce update-coincidents basis groups))))
 
+(defn within-n
+  [n]
+  (fn [x]
+    (loop [x x]
+      (cond
+       (>= x n) (recur (- x n))
+       (<= x (- n)) (recur (+ x n))
+       :else x))))
+
+(def within-12 (within-n 12))
+
 (defn reference-pool
-  [notes]
+  [notes note]
   (fn [references]
-    (map #(select-keys (nth notes (dec %)) [:relative :note]) references)))
+    (map (fn [reference]
+           (let [referred (select-keys (nth notes (dec reference)) [:relative :note])]
+             (assoc referred :from (- (:note note) (:note referred)))))
+         references)))
 
 (defn find-note-references
   [notes note]
-  (let [pool (reference-pool notes)]
+  (let [pool (reference-pool notes note)]
     (-> note
         (update-in [:preceding] pool)
         (update-in [:during] pool))))
@@ -260,3 +276,32 @@
   [notes coincidents]
   (map (partial find-note-references notes) coincidents))
 
+(defn fugue-interrelation
+  [book number]
+  (let [fugue (:fugue (read-fugue book number))
+        coincidents (find-coincidents fugue)]
+    (apply-note-references coincidents coincidents)))
+
+(defn shift-relative
+  [relative]
+  (+ 12 (within-12 relative)))
+
+(def bin-index (take 23 (iterate inc 1)))
+
+(defn relative-bins
+  [relatives]
+  (let [mapping (reduce (fn [m relative] (assoc m relative true)) {} relatives)]
+    (map (fn [x] (if (get mapping x) 1 0)) bin-index)))
+
+(defn translate-relatives
+  [relatives]
+  (let [mapping (map #(shift-relative (:from %)) relatives)]
+    (relative-bins mapping)))
+
+(defn translate-note
+  [note]
+  (let [relative (shift-relative (:relative note))
+        preceding (translate-relatives (:preceding note))
+        during (translate-relatives (:during note))
+        relatives (vec (concat preceding during))]
+    (conj relatives relative)))
