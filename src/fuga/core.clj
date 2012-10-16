@@ -16,7 +16,60 @@
 
 (def tick-buffer 10)
 
-;; reading and playing sequences -------------------
+(def occam-header
+  ":nominal
+ preceding-major-seventh-below, 2,1,pjvb
+ preceding-minor-seventh-below, 2,1,pnvb
+ preceding-major-sixth-below,   2,1,pjxb
+ preceding-minor-sixth-below,   2,1,pnxb
+ preceding-fifth-below,         2,1,ppfb
+ preceding-tritone-below,       2,1,pttb
+ preceding-fourth-below,        2,1,ppob
+ preceding-major-third-below,   2,1,pjtb
+ preceding-minor-third-below,   2,1,pntb
+ preceding-major-second-below,  2,1,pjsb
+ preceding-minor-second-below,  2,1,pnsb
+ preceding-unison,              2,1,puuu
+ preceding-minor-second-above,  2,1,pnsa
+ preceding-major-second-above,  2,1,pjsa
+ preceding-minor-third-above,   2,1,pnta
+ preceding-major-third-above,   2,1,pjta
+ preceding-fourth-above,        2,1,ppua
+ preceding-tritone-above,       2,1,ptta
+ preceding-fifth-above,         2,1,ppfa
+ preceding-minor-sixth-above,   2,1,pnxa
+ preceding-major-sixth-above,   2,1,pjxa
+ preceding-minor-seventh-above, 2,1,pnva
+ preceding-major-seventh-above, 2,1,pjva
+ during-major-seventh-below,    2,1,djvb
+ during-minor-seventh-below,    2,1,dnvb
+ during-major-sixth-below,      2,1,djxb
+ during-minor-sixth-below,      2,1,dnxb
+ during-fifth-below,            2,1,dpfb
+ during-tritone-below,          2,1,dttb
+ during-fourth-below,           2,1,dpob
+ during-major-third-below,      2,1,djtb
+ during-minor-third-below,      2,1,dntb
+ during-major-second-below,     2,1,djsb
+ during-minor-second-below,     2,1,dnsb
+ during-unison,                 2,1,duuu
+ during-minor-second-above,     2,1,dnsa
+ during-major-second-above,     2,1,djsa
+ during-minor-third-above,      2,1,dnta
+ during-major-third-above,      2,1,djta
+ during-fourth-above,           2,1,dpua
+ during-tritone-above,          2,1,dtta
+ during-fifth-above,            2,1,dpfa
+ during-minor-sixth-above,      2,1,dnxa
+ during-major-sixth-above,      2,1,djxa
+ during-minor-seventh-above,    2,1,dnva
+ during-major-seventh-above,    2,1,djva
+ next-note,                     23,2,nn
+
+:data
+")
+
+;; reading and playing sequences from midi files -------------------
 
 (defn read-midi
   [midi]
@@ -50,7 +103,7 @@
   [sequencer]
   (.close sequencer))
 
-;; extracting note data -------------------------------------
+;; extracting note data from midi files -------------------------------------
 
 (defn extract-data
   [event]
@@ -124,6 +177,8 @@
 (defn fugue-notes
   [book number]
   (pull-notes (fugue-sequence book number)))
+
+;; process notes into basic harmonic relations -----------------------
 
 (defn- update-diff-pile
   [pile n]
@@ -252,7 +307,7 @@
   (fn [references]
     (map (fn [reference]
            (let [referred (select-keys (nth notes (dec reference)) [:relative :note])]
-             (assoc referred :from (- (:note note) (:note referred)))))
+             (assoc referred :from (- (:note referred) (:note note)))))
          references)))
 
 (defn find-note-references
@@ -308,59 +363,6 @@
         during (translate-relatives (:during note))
         relatives (vec (concat preceding during))]
     (conj relatives relative)))
-
-(def occam-header
-  ":nominal
- preceding-major-seventh-below, 2,1,pjvb
- preceding-minor-seventh-below, 2,1,pnvb
- preceding-major-sixth-below,   2,1,pjxb
- preceding-minor-sixth-below,   2,1,pnxb
- preceding-fifth-below,         2,1,ppfb
- preceding-tritone-below,       2,1,pttb
- preceding-fourth-below,        2,1,ppob
- preceding-major-third-below,   2,1,pjtb
- preceding-minor-third-below,   2,1,pntb
- preceding-major-second-below,  2,1,pjsb
- preceding-minor-second-below,  2,1,pnsb
- preceding-unison,              2,1,puuu
- preceding-minor-second-above,  2,1,pnsa
- preceding-major-second-above,  2,1,pjsa
- preceding-minor-third-above,   2,1,pnta
- preceding-major-third-above,   2,1,pjta
- preceding-fourth-above,        2,1,ppua
- preceding-tritone-above,       2,1,ptta
- preceding-fifth-above,         2,1,ppfa
- preceding-minor-sixth-above,   2,1,pnxa
- preceding-major-sixth-above,   2,1,pjxa
- preceding-minor-seventh-above, 2,1,pnva
- preceding-major-seventh-above, 2,1,pjva
- during-major-seventh-below,    2,1,djvb
- during-minor-seventh-below,    2,1,dnvb
- during-major-sixth-below,      2,1,djxb
- during-minor-sixth-below,      2,1,dnxb
- during-fifth-below,            2,1,dpfb
- during-tritone-below,          2,1,dttb
- during-fourth-below,           2,1,dpob
- during-major-third-below,      2,1,djtb
- during-minor-third-below,      2,1,dntb
- during-major-second-below,     2,1,djsb
- during-minor-second-below,     2,1,dnsb
- during-unison,                 2,1,duuu
- during-minor-second-above,     2,1,dnsa
- during-major-second-above,     2,1,djsa
- during-minor-third-above,      2,1,dnta
- during-major-third-above,      2,1,djta
- during-fourth-above,           2,1,dpua
- during-tritone-above,          2,1,dtta
- during-fifth-above,            2,1,dpfa
- during-minor-sixth-above,      2,1,dnxa
- during-major-sixth-above,      2,1,djxa
- during-minor-seventh-above,    2,1,dnva
- during-major-seventh-above,    2,1,djva
- next-note,                     23,2,nn
-
-:data
-")
 
 (defn histogram
   [s]
