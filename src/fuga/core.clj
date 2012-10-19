@@ -1,7 +1,9 @@
 (ns fuga.core
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
-            [clojure.set :as set])
+            [clojure.set :as set]
+            [occam.core :as occam]
+            [fuga.cluster :as cluster])
   (:import (javax.sound.midi MidiSystem Sequencer)))
 
 (def command-map
@@ -16,58 +18,58 @@
 
 (def tick-buffer 10)
 
-(def occam-header
-  ":nominal
- preceding-major-seventh-below, 2,1,pjvb
- preceding-minor-seventh-below, 2,1,pnvb
- preceding-major-sixth-below,   2,1,pjxb
- preceding-minor-sixth-below,   2,1,pnxb
- preceding-fifth-below,         2,1,ppfb
- preceding-tritone-below,       2,1,pttb
- preceding-fourth-below,        2,1,ppob
- preceding-major-third-below,   2,1,pjtb
- preceding-minor-third-below,   2,1,pntb
- preceding-major-second-below,  2,1,pjsb
- preceding-minor-second-below,  2,1,pnsb
- preceding-unison,              2,1,puuu
- preceding-minor-second-above,  2,1,pnsa
- preceding-major-second-above,  2,1,pjsa
- preceding-minor-third-above,   2,1,pnta
- preceding-major-third-above,   2,1,pjta
- preceding-fourth-above,        2,1,ppua
- preceding-tritone-above,       2,1,ptta
- preceding-fifth-above,         2,1,ppfa
- preceding-minor-sixth-above,   2,1,pnxa
- preceding-major-sixth-above,   2,1,pjxa
- preceding-minor-seventh-above, 2,1,pnva
- preceding-major-seventh-above, 2,1,pjva
- during-major-seventh-below,    2,1,djvb
- during-minor-seventh-below,    2,1,dnvb
- during-major-sixth-below,      2,1,djxb
- during-minor-sixth-below,      2,1,dnxb
- during-fifth-below,            2,1,dpfb
- during-tritone-below,          2,1,dttb
- during-fourth-below,           2,1,dpob
- during-major-third-below,      2,1,djtb
- during-minor-third-below,      2,1,dntb
- during-major-second-below,     2,1,djsb
- during-minor-second-below,     2,1,dnsb
- during-unison,                 2,1,duuu
- during-minor-second-above,     2,1,dnsa
- during-major-second-above,     2,1,djsa
- during-minor-third-above,      2,1,dnta
- during-major-third-above,      2,1,djta
- during-fourth-above,           2,1,dpua
- during-tritone-above,          2,1,dtta
- during-fifth-above,            2,1,dpfa
- during-minor-sixth-above,      2,1,dnxa
- during-major-sixth-above,      2,1,djxa
- during-minor-seventh-above,    2,1,dnva
- during-major-seventh-above,    2,1,djva
- next-note,                     23,2,nn
+(def duration-seed (doall (map (fn [x] {:duration x}) '(100 200 400 800 1600 3200))))
 
-:data
-")
+(def occam-header
+  {:nominal
+   [{:long-name "preceding-major-seventh-below", :degrees "2", :role "1", :short-name "pjvb"}
+    {:long-name "preceding-minor-seventh-below", :degrees "2", :role "1", :short-name "pnvb"}
+    {:long-name "preceding-major-sixth-below", :degrees "2", :role "1", :short-name "pjxb"}
+    {:long-name "preceding-minor-sixth-below", :degrees "2", :role "1", :short-name "pnxb"}
+    {:long-name "preceding-fifth-below", :degrees "2", :role "1", :short-name "ppfb"}
+    {:long-name "preceding-tritone-below", :degrees "2", :role "1", :short-name "pttb"}
+    {:long-name "preceding-fourth-below", :degrees "2", :role "1", :short-name "ppob"}
+    {:long-name "preceding-major-third-below", :degrees "2", :role "1", :short-name "pjtb"}
+    {:long-name "preceding-minor-third-below", :degrees "2", :role "1", :short-name "pntb"}
+    {:long-name "preceding-major-second-below", :degrees "2", :role "1", :short-name "pjsb"}
+    {:long-name "preceding-minor-second-below", :degrees "2", :role "1", :short-name "pnsb"}
+    {:long-name "preceding-unison", :degrees "2", :role "1", :short-name "puuu"}
+    {:long-name "preceding-minor-second-above", :degrees "2", :role "1", :short-name "pnsa"}
+    {:long-name "preceding-major-second-above", :degrees "2", :role "1", :short-name "pjsa"}
+    {:long-name "preceding-minor-third-above", :degrees "2", :role "1", :short-name "pnta"}
+    {:long-name "preceding-major-third-above", :degrees "2", :role "1", :short-name "pjta"}
+    {:long-name "preceding-fourth-above", :degrees "2", :role "1", :short-name "ppua"}
+    {:long-name "preceding-tritone-above", :degrees "2", :role "1", :short-name "ptta"}
+    {:long-name "preceding-fifth-above", :degrees "2", :role "1", :short-name "ppfa"}
+    {:long-name "preceding-minor-sixth-above", :degrees "2", :role "1", :short-name "pnxa"}
+    {:long-name "preceding-major-sixth-above", :degrees "2", :role "1", :short-name "pjxa"}
+    {:long-name "preceding-minor-seventh-above", :degrees "2", :role "1", :short-name "pnva"}
+    {:long-name "preceding-major-seventh-above", :degrees "2", :role "1", :short-name "pjva"}
+    {:long-name "during-major-seventh-below", :degrees "2", :role "1", :short-name "djvb"}
+    {:long-name "during-minor-seventh-below", :degrees "2", :role "1", :short-name "dnvb"}
+    {:long-name "during-major-sixth-below", :degrees "2", :role "1", :short-name "djxb"}
+    {:long-name "during-minor-sixth-below", :degrees "2", :role "1", :short-name "dnxb"}
+    {:long-name "during-fifth-below", :degrees "2", :role "1", :short-name "dpfb"}
+    {:long-name "during-tritone-below", :degrees "2", :role "1", :short-name "dttb"}
+    {:long-name "during-fourth-below", :degrees "2", :role "1", :short-name "dpob"}
+    {:long-name "during-major-third-below", :degrees "2", :role "1", :short-name "djtb"}
+    {:long-name "during-minor-third-below", :degrees "2", :role "1", :short-name "dntb"}
+    {:long-name "during-major-second-below", :degrees "2", :role "1", :short-name "djsb"}
+    {:long-name "during-minor-second-below", :degrees "2", :role "1", :short-name "dnsb"}
+    {:long-name "during-unison", :degrees "2", :role "1", :short-name "duuu"}
+    {:long-name "during-minor-second-above", :degrees "2", :role "1", :short-name "dnsa"}
+    {:long-name "during-major-second-above", :degrees "2", :role "1", :short-name "djsa"}
+    {:long-name "during-minor-third-above", :degrees "2", :role "1", :short-name "dnta"}
+    {:long-name "during-major-third-above", :degrees "2", :role "1", :short-name "djta"}
+    {:long-name "during-fourth-above", :degrees "2", :role "1", :short-name "dpua"}
+    {:long-name "during-tritone-above", :degrees "2", :role "1", :short-name "dtta"}
+    {:long-name "during-fifth-above", :degrees "2", :role "1", :short-name "dpfa"}
+    {:long-name "during-minor-sixth-above", :degrees "2", :role "1", :short-name "dnxa"}
+    {:long-name "during-major-sixth-above", :degrees "2", :role "1", :short-name "djxa"}
+    {:long-name "during-minor-seventh-above", :degrees "2", :role "1", :short-name "dnva"}
+    {:long-name "during-major-seventh-above", :degrees "2", :role "1", :short-name "djva"}
+    {:long-name "next-note", :degrees "23", :role "2", :short-name "nn"}]
+   :data [] :test nil})
 
 ;; reading and playing sequences from midi files -------------------
 
@@ -145,7 +147,8 @@
   (if tick
     (conj notes {:begin tick
                  :end (:tick off)
-                 :note (-> off :data first)})
+                 :note (-> off :data first)
+                 :duration (- (:tick off) tick)})
     notes))
 
 (defn dissoc-in
@@ -179,6 +182,19 @@
   (pull-notes (fugue-sequence book number)))
 
 ;; process notes into basic harmonic relations -----------------------
+
+(defn duration-distance
+  [a b]
+  (let [a-dur (:duration a)
+        b-dur (:duration b)]
+    (if (< a-dur b-dur) (- b-dur a-dur) (- a-dur b-dur))))
+
+(defn duration-average
+  [z]
+  {:duration
+   (if-let [z (seq z)]
+     (/ (reduce #(+ %1 (:duration %2)) 0 z) (count z))
+     0)})
 
 (defn- update-diff-pile
   [pile n]
@@ -366,25 +382,29 @@
 
 (defn histogram
   [s]
-  (reduce (fn [hist item]
-            (assoc hist item (if-let [total (get hist item)] (inc total) 1)))
-          {} s))
+  (reduce
+   (fn [hist item]
+     (assoc hist item (if-let [total (get hist item)] (inc total) 1)))
+   {} s))
 
 (defn occam-row
   [[row freq]]
-  (let [row-string (string/join " " row)]
-    (str " " row-string " " freq)))
+  (conj (vec row) freq))
 
-(defn occam-output
+(defn occam-data
   [notes]
   (let [translations (map translate-note notes)
         frequency-map (histogram translations)
         occam-rows (map occam-row frequency-map)]
-    (str occam-header (string/join "\n" occam-rows))))
+    (assoc occam-header :data occam-rows)))
 
 (defn occamize-fugue
   [book number]
   (let [relations (fugue-interrelation book number)
-        output (occam-output relations)
+        data (occam-data relations)
         filename (str "occam/occam-book-" book "-fugue-" number ".in")]
-    (spit filename output)))
+    (occam/write-occam filename data)))
+
+;; TODO: break duration down into bins
+;; TODO: translate notes back into midi
+;; TODO: markov chain generator based on note data
