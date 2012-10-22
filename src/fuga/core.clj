@@ -3,7 +3,7 @@
             [clojure.string :as string]
             [clojure.set :as set]
             [occam.core :as occam]
-            [fuga.cluster :as cluster])
+            [occam.cluster :as cluster])
   (:import (javax.sound.midi MidiSystem Sequencer)))
 
 (def command-map
@@ -17,8 +17,6 @@
    \f :SYSTEM})
 
 (def tick-buffer 10)
-
-(def duration-seed (doall (map (fn [x] {:duration x}) '(100 200 400 800 1600 3200))))
 
 (def occam-header
   {:nominal
@@ -183,19 +181,6 @@
 
 ;; process notes into basic harmonic relations -----------------------
 
-(defn duration-distance
-  [a b]
-  (let [a-dur (:duration a)
-        b-dur (:duration b)]
-    (if (< a-dur b-dur) (- b-dur a-dur) (- a-dur b-dur))))
-
-(defn duration-average
-  [z]
-  {:duration
-   (if-let [z (seq z)]
-     (/ (reduce #(+ %1 (:duration %2)) 0 z) (count z))
-     0)})
-
 (defn- update-diff-pile
   [pile n]
   (let [diff (- n (:previous pile))
@@ -286,6 +271,12 @@
                      (rest s))]
       (:el reduction))))
      
+(defn note-difference
+  [k a b]
+  (if (and a b)
+    (- (get a k) (get b k))
+    0))
+
 (defn surrounding-notes
   [note preceding continuing peers]
   (let [closest (find-min <
@@ -294,9 +285,8 @@
     (assoc note
       :preceding (map :id preceding)
       :during (map :id (concat continuing peers))
-      :relative (if closest
-                  (- (:note note) (:note closest))
-                  0))))
+      :wait (note-difference :begin note closest)
+      :relative (note-difference :note note closest))))
 
 (defn update-coincidents
   [co note-group]
@@ -318,12 +308,16 @@
         groups (group-notes notes)]
     (:notes (reduce update-coincidents basis groups))))
 
+(def relative-keys [:relative :note])
+
 (defn reference-pool
   [notes note]
   (fn [references]
     (map (fn [reference]
-           (let [referred (select-keys (nth notes (dec reference)) [:relative :note])]
-             (assoc referred :from (- (:note referred) (:note note)))))
+           (let [referred (select-keys (nth notes (dec reference)) relative-keys)]
+             (assoc referred
+               :from (- (:note referred) (:note note))
+               :before (- (:begin note) (:begin referred)))))
          references)))
 
 (defn find-note-references
@@ -387,15 +381,14 @@
      (assoc hist item (if-let [total (get hist item)] (inc total) 1)))
    {} s))
 
-(defn occam-row
-  [[row freq]]
-  (conj (vec row) freq))
-
 (defn occam-data
   [notes]
   (let [translations (map translate-note notes)
         frequency-map (histogram translations)
-        occam-rows (map occam-row frequency-map)]
+        occam-rows (map
+                    (fn [[r f]]
+                      (conj (vec r) f))
+                    frequency-map)]
     (assoc occam-header :data occam-rows)))
 
 (defn occamize-fugue
