@@ -4,7 +4,13 @@
             [clojure.set :as set]
             [occam.core :as occam]
             [occam.cluster :as cluster])
-  (:import (javax.sound.midi MidiSystem Sequencer)))
+  (:import (javax.sound.midi MidiSystem MidiEvent Sequence Sequencer ShortMessage)))
+
+(defn invert-map
+  [m]
+  (reduce
+   (fn [m [k v]]
+     (assoc m v k)) {} m))
 
 (def command-map
   {\8 :OFF
@@ -16,6 +22,18 @@
    \e :PITCHBEND
    \f :SYSTEM})
 
+(def byte-commands
+  {:OFF ShortMessage/NOTE_OFF
+   :ON ShortMessage/NOTE_ON
+   :AFTERTOUCH ShortMessage/POLY_PRESSURE
+   :CONTROL ShortMessage/CONTROL_CHANGE
+   :PATCH ShortMessage/PROGRAM_CHANGE
+   :PRESSURE ShortMessage/CHANNEL_PRESSURE
+   :PITCHBEND ShortMessage/PITCH_BEND
+   :START (int 250)
+   :STOP (int 252)})
+
+;; (def byte-commands (invert-map command-map))
 (def tick-buffer 10)
 
 (def occam-header
@@ -124,6 +142,24 @@
 (defn extract-tracks
   [midi]
   (map extract-events (.getTracks midi)))
+
+(defn midi-event
+  [event]
+  (let [command (get byte-commands (:command event))
+        [data1 data2] (map byte (:data event))
+        message (ShortMessage.)]
+    (.setMessage message command (:channel event) data1 data2)
+    (MidiEvent. message (:tick event))))
+
+(defn midi-sequence
+  [events]
+  (let [sequence (Sequence. 0 240)
+        track (.createTrack sequence)]
+    (doseq [event events]
+      (.add track (midi-event event)))
+    sequence))
+
+;; processing midi events into notes ---------------------------------
 
 (defn filter-notes
   [tracks]
