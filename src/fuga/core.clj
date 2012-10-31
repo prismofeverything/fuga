@@ -215,6 +215,44 @@
   [book number]
   (pull-notes (fugue-sequence book number)))
 
+;; turn notes back into a midi sequence ---------------------------
+
+(defn note-events
+  [note channel]
+  (let [on {:command :ON :tick (:begin note) :data [(:note note) 127] :channel channel}
+        off {:command :OFF :tick (:end note) :data [(:note note) 0] :channel channel}]
+    [on off]))
+
+(defn separate
+  [p s]
+  (let [{hits true misses false} (group-by p s)]
+    [hits misses]))
+
+(defn midi-notes
+  [notes]
+  (loop [notes (sort-by :begin notes)
+         channels {}
+         channel 0
+         midi nil]
+    (if-not (empty? notes)
+      (let [note (first notes)
+            [remaining over] (separate
+                              (fn [[_ end]]
+                                (>= end (:begin note)))
+                              channels)
+            open-channel (first (sort (map first over)))
+            channel (if (and open-channel (< open-channel channel))
+                      open-channel
+                      channel)]
+        (recur
+         (rest notes)
+         (assoc (into {} remaining) channel (:end note))
+         (inc channel)
+         (concat midi (note-events note channel))))
+      midi)))
+
+(def note-sequence (comp midi-sequence midi-notes))
+
 ;; process notes into basic harmonic relations -----------------------
 
 (defn- update-diff-pile
