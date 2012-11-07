@@ -382,7 +382,7 @@
         groups (group-notes notes)]
     (:notes (reduce update-coincidents basis groups))))
 
-(def relative-keys [:relative :note])
+(def relative-keys [:relative :note :begin :duration])
 
 (defn reference-pool
   [notes note]
@@ -403,7 +403,9 @@
 
 (defn apply-note-references
   [notes coincidents]
-  (map (partial find-note-references notes) coincidents))
+  (map
+   (partial find-note-references notes)
+   coincidents))
 
 (defn fugue-interrelation
   [book number]
@@ -473,5 +475,4 @@
     (occam/write-occam filename data)))
 
 ;; TODO: break duration down into bins
-;; TODO: translate notes back into midi
 ;; TODO: markov chain generator based on note data
