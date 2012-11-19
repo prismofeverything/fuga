@@ -464,13 +464,6 @@
    (partial find-note-references notes)
    coincidents))
 
-(defn fugue-interrelation
-  [book number]
-  (let [fugue (fugue-coincidents book number)
-        chains (build-chains fugue)
-        referents (apply-note-references fugue fugue)]
-    {:chains chains :relations referents}))
-
 ;; note gestures ------------------------------------
 
 (defn queue
@@ -491,7 +484,7 @@
               view (-> view pop (conj opening))]
           (recur view (rest landscape) snapshots))))))
 
-(defn extract-gestures
+(defn extract-gesture
   [notes chain history key]
   (let [note-chain (map #(get (nth notes %) key) chain)]
     (shift-window
@@ -501,6 +494,21 @@
          relative))
      note-chain
      (+ history 2))))
+
+(defn extract-gestures
+  [notes chains history key]
+  (mapcat
+   #(extract-gesture notes % history key)
+   (filter #(> (count %) history) chains)))
+
+(defn fugue-interrelation
+  [book number history]
+  (let [fugue (fugue-coincidents book number)
+        chains (build-chains fugue)
+        note-gestures (extract-gestures fugue chains history :note)
+        dur-gestures (extract-gestures fugue chains history :dur)
+        referents (apply-note-references fugue fugue)]
+    {:chains chains :gestures {:note note-gestures :dur dur-gestures} :relations referents}))
 
 ;; occam translation --------------------------------------
 
