@@ -3,7 +3,8 @@
             [clojure.string :as string]
             [clojure.set :as set]
             [occam.core :as occam]
-            [occam.cluster :as cluster])
+            [occam.cluster :as cluster]
+            [occam.fit :as fit])
   (:import (javax.sound.midi MidiSystem MidiEvent Sequence Sequencer ShortMessage)))
 
 (defn invert-map
@@ -34,7 +35,7 @@
    :STOP (int 252)})
 
 ;; (def byte-commands (invert-map command-map))
-(def tick-buffer 10)
+(def tick-buffer 15)
 
 (def occam-header
   {:nominal
@@ -270,7 +271,7 @@
 (defn assoc-diff
   [notes]
   (let [diffs (map-differences (map :begin notes))
-        ids (take (count diffs) (iterate inc 1))]
+        ids (take (count diffs) (iterate inc 0))]
     (map (fn [note diff id] (assoc note :diff diff :id id)) notes diffs ids)))
 
 (defn split-every
@@ -357,6 +358,7 @@
                  #(Math/abs (- (:note note) (:note %)))
                  (concat preceding continuing))]
     (assoc note
+      :closest [(:id closest)]
       :preceding (map :id preceding)
       :during (map :id (concat continuing peers))
       :wait (note-difference :begin note closest)
@@ -382,24 +384,79 @@
         groups (group-notes notes)]
     (:notes (reduce update-coincidents basis groups))))
 
+(defn note-metric
+  [note]
+  (Math/sqrt (:duration note)))
+
+(defn cluster-duration
+  [notes]
+  (sort-by :begin (cluster/cluster-by notes note-metric 7 :dur)))
+
+(defn fugue-coincidents
+  [book number]
+  (let [fugue (:fugue (read-fugue book number))]
+    (cluster-duration (find-coincidents fugue))))
+
+;; extracting note chains -------------------------
+
+(defn build-chain
+  [web]
+  (if-let [head (first (sort > (keys web)))]
+    (loop [head head
+           web web
+           chain (list head)]
+      (if-let [tail (get web head)]
+        (let [web (dissoc web head)
+              chain (cons tail chain)]
+          (recur tail web chain))
+        [chain web]))
+    [nil nil]))
+
+(defn note-web
+  [notes]
+  (reduce
+   (fn [web note]
+     (if-let [closest (-> note :closest first)]
+       (assoc web
+         (:id note) closest)
+       web))
+   {} notes))
+
+(defn build-chains
+  [notes]
+  (loop [web (note-web notes)
+         chains nil]
+    (if (empty? web)
+      chains
+      (let [[chain web] (build-chain web)]
+        (if (empty? chain)
+          chains
+          (recur web (cons chain chains)))))))
+
+;; unfolding references -------------------------------------------
+
 (def relative-keys [:relative :note :begin :duration])
 
 (defn reference-pool
   [notes note]
   (fn [references]
-    (map (fn [reference]
-           (let [referred (select-keys (nth notes (dec reference)) relative-keys)]
-             (assoc referred
-               :from (- (:note referred) (:note note))
-               :before (- (:begin note) (:begin referred)))))
-         references)))
+    (map
+     (fn [reference]
+       (if reference
+         (let [referred (select-keys (nth notes reference) relative-keys)]
+           (assoc referred
+             :from (- (:note referred) (:note note))
+             :before (- (:begin note) (:begin referred))))))
+     references)))
 
 (defn find-note-references
   [notes note]
   (let [pool (reference-pool notes note)]
-    (-> note
-        (update-in [:preceding] pool)
-        (update-in [:during] pool))))
+    (reduce
+     (fn [note key]
+       (update-in note [key] pool))
+     note
+     [:preceding :during :closest])))
 
 (defn apply-note-references
   [notes coincidents]
@@ -409,9 +466,41 @@
 
 (defn fugue-interrelation
   [book number]
-  (let [fugue (:fugue (read-fugue book number))
-        coincidents (find-coincidents fugue)]
-    (apply-note-references coincidents coincidents)))
+  (let [fugue (fugue-coincidents book number)
+        chains (build-chains fugue)
+        referents (apply-note-references fugue fugue)]
+    {:chains chains :relations referents}))
+
+;; note gestures ------------------------------------
+
+(defn queue
+  [l]
+  (let [q (clojure.lang.PersistentQueue/EMPTY)]
+    (apply conj (cons q l))))
+
+(defn shift-window
+  [capture landscape window]
+  (loop [view (queue (take window landscape))
+         landscape (drop window landscape)
+         snapshots nil]
+    (let [snapshot (capture view)
+          snapshots (cons snapshot snapshots)]
+      (if (empty? landscape)
+        (reverse snapshots)
+        (let [opening (first landscape)
+              view (-> view pop (conj opening))]
+          (recur view (rest landscape) snapshots))))))
+
+(defn extract-gestures
+  [notes chain history key]
+  (let [note-chain (map #(get (nth notes %) key) chain)]
+    (shift-window
+     (fn [snapshot]
+       (let [pivot (nth snapshot history)
+             relative (map #(- % pivot) snapshot)]
+         relative))
+     note-chain
+     (+ history 2))))
 
 ;; occam translation --------------------------------------
 
@@ -430,12 +519,24 @@
   [relative]
   (+ 12 (within-12 relative)))
 
-(def bin-index (take 23 (iterate inc 1)))
+(defn shift-back
+  [occam]
+  (- 12 occam))
+
+(def bin-index
+  (take 23 (iterate inc 1)))
 
 (defn relative-bins
   [relatives]
-  (let [mapping (reduce (fn [m relative] (assoc m relative true)) {} relatives)]
-    (map (fn [x] (if (get mapping x) 1 0)) bin-index)))
+  (let [mapping
+        (reduce
+         (fn [m relative]
+           (assoc m relative true))
+         {} relatives)]
+    (map
+     (fn [x]
+       (if (get mapping x) 1 0))
+     bin-index)))
 
 (defn translate-relatives
   [relatives]
@@ -470,9 +571,17 @@
 (defn occamize-fugue
   [book number]
   (let [relations (fugue-interrelation book number)
-        data (occam-data relations)
+        data (occam-data (:relations relations))
         filename (str "occam/occam-book-" book "-fugue-" number ".in")]
     (occam/write-occam filename data)))
 
-;; TODO: break duration down into bins
+;; note generation --------------------------------------
+
+(defn note-generator
+  [occam mapping]
+  )
+
+
+
+
 ;; TODO: markov chain generator based on note data
