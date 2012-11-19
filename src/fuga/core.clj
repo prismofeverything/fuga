@@ -2,6 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [clojure.set :as set]
+            [occam.csv :as csv]
             [occam.core :as occam]
             [occam.cluster :as cluster]
             [occam.fit :as fit])
@@ -87,6 +88,18 @@
     {:long-name "during-major-seventh-above", :degrees "2", :role "1", :short-name "djva"}
     {:long-name "next-note", :degrees "23", :role "2", :short-name "nn"}]
    :data [] :test nil})
+
+(defn make-header
+  [data]
+  (let [in-count (dec (count (first data)))
+        in-names (take in-count (csv/symbol-tower "abcdefghijklmnopqrstuvwxy"))
+        ins (map
+             (fn [in-name]
+               {:degrees 50 :role 1 :short-name in-name :long-name in-name})
+             in-names)
+        out {:long-name "next-note" :short-name "z" :degrees 50 :role 2}
+        nominal (concat ins (list out))]
+    {:preamble ":no-frequencies\n\n" :nominal nominal :data data :test nil}))
 
 ;; reading and playing sequences from midi files -------------------
 
@@ -512,6 +525,26 @@
 
 ;; occam translation --------------------------------------
 
+(defn nested-greatest
+  [c f z]
+  (f (cluster/greatest c f z)))
+
+(defn occam-interrelation
+  [interrelation key]
+  (let [gesture (-> interrelation :gestures key)
+        minimum-independent (nested-greatest < (partial cluster/greatest < identity) gesture)
+        minimum-dependent (nested-greatest < last gesture)
+        independent-count (- (count (first gesture)) 2)
+        independent (map
+                     (fn [datum]
+                       (map
+                        #(- % minimum-independent)
+                        (take independent-count datum)))
+                     gesture)
+        dependent (map (comp list #(- % minimum-dependent) last) gesture)
+        data (map concat independent dependent)]
+    (make-header data)))
+
 (defn within-n
   [n]
   (fn [x]
@@ -577,11 +610,18 @@
     (assoc occam-header :data occam-rows)))
 
 (defn occamize-fugue
-  [book number]
-  (let [relations (fugue-interrelation book number)
+  [book number history]
+  (let [relations (fugue-interrelation book number history)
         data (occam-data (:relations relations))
         filename (str "occam/occam-book-" book "-fugue-" number ".in")]
     (occam/write-occam filename data)))
+
+(defn occamize-chains
+  [book number history key]
+  (let [relations (fugue-interrelation book number history)
+        occam (occam-interrelation relations key)
+        filename (str "occam/occam-book-" book "-fugue-" number "-chains.in")]
+    (occam/write-occam filename occam)))
 
 ;; note generation --------------------------------------
 
