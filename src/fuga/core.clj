@@ -678,7 +678,7 @@
 
 (defn predict-note
   [predictions states]
-
+  )
 
 
 
