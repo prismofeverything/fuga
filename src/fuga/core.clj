@@ -98,8 +98,9 @@
                {:degrees 50 :role 1 :short-name in-name :long-name in-name})
              in-names)
         out {:long-name "next-note" :short-name "z" :degrees 50 :role 2}
-        nominal (concat ins (list out))]
-    {:preamble ":no-frequencies\n\n" :nominal nominal :data data :test nil}))
+        nominal (concat ins (list out))
+        gram (occam/bind-frequencies data)]
+    {:nominal nominal :data gram :test nil}))
 
 ;; reading and playing sequences from midi files -------------------
 
@@ -521,29 +522,14 @@
         note-gestures (extract-gestures fugue chains history :note)
         dur-gestures (extract-gestures fugue chains history :dur)
         referents (apply-note-references fugue fugue)]
-    {:chains chains :gestures {:note note-gestures :dur dur-gestures} :relations referents}))
+    {:book book
+     :number number
+     :history history
+     :chains chains
+     :gestures {:note note-gestures :dur dur-gestures}
+     :relations referents}))
 
-;; occam translation --------------------------------------
-
-(defn nested-greatest
-  [c f z]
-  (f (cluster/greatest c f z)))
-
-(defn occam-interrelation
-  [interrelation key]
-  (let [gesture (-> interrelation :gestures key)
-        minimum-independent (nested-greatest < (partial cluster/greatest < identity) gesture)
-        minimum-dependent (nested-greatest < last gesture)
-        independent-count (- (count (first gesture)) 2)
-        independent (map
-                     (fn [datum]
-                       (map
-                        #(- % minimum-independent)
-                        (take independent-count datum)))
-                     gesture)
-        dependent (map (comp list #(- % minimum-dependent) last) gesture)
-        data (map concat independent dependent)]
-    (make-header data)))
+;; old occam translation --------------------------------------
 
 (defn within-n
   [n]
@@ -592,17 +578,10 @@
         relatives (vec (concat preceding during))]
     (conj relatives relative)))
 
-(defn histogram
-  [s]
-  (reduce
-   (fn [hist item]
-     (assoc hist item (if-let [total (get hist item)] (inc total) 1)))
-   {} s))
-
 (defn occam-data
   [notes]
   (let [translations (map translate-note notes)
-        frequency-map (histogram translations)
+        frequency-map (occam/histogram translations)
         occam-rows (map
                     (fn [[r f]]
                       (conj (vec r) f))
@@ -616,14 +595,95 @@
         filename (str "occam/occam-book-" book "-fugue-" number ".in")]
     (occam/write-occam filename data)))
 
+;; chain occam translation ------------------------------------------------
+
+(defn chain-path
+  [book number history key phase]
+  (let [key (name key)
+        phase (name phase)]
+    (str "occam/" phase
+         "/book-" book
+         "-fugue-" number
+         "-history-" history
+         "-" key
+         "." phase)))
+
+(defn nested-greatest
+  [c f z]
+  (f (cluster/greatest c f z)))
+
+(defn occam-interrelation
+  [interrelation key]
+  (let [gesture (-> interrelation :gestures key)
+        minimum-independent (nested-greatest < (partial cluster/greatest < identity) gesture)
+        minimum-dependent (nested-greatest < last gesture)
+        independent-count (- (count (first gesture)) 2)
+        independent (map
+                     (fn [datum]
+                       (map
+                        #(- % minimum-independent)
+                        (take independent-count datum)))
+                     gesture)
+        dependent (map (comp list #(- % minimum-dependent) last) gesture)
+        data (map concat independent dependent)]
+    (make-header data)))
+
 (defn occamize-chains
   [book number history key]
   (let [relations (fugue-interrelation book number history)
         occam (occam-interrelation relations key)
-        filename (str "occam/occam-book-" book "-fugue-" number "-chains.in")]
-    (occam/write-occam filename occam)))
+        path (chain-path book number history key :in)]
+    (occam/write-occam path occam)
+    (assoc relations
+      :occam occam
+      :key key)))
+
+(defn occamize-history
+  [book number history key]
+  (map 
+   (fn [slice]
+     (occamize-chains book number slice key))
+   (reverse (range 1 (inc history)))))
 
 ;; note generation --------------------------------------
+
+(defn signature
+  [phase relation]
+  (let [phase (name phase)
+        signify (juxt :book :number :history :key (fn [_] phase))]
+    (signify relation)))
+
+(defn merge-fit-mapping
+  [history]
+  (map
+   (fn [relation]
+     (let [sigil (signature :fit relation)
+           path (apply chain-path sigil)
+           mapping (fit/read-fit-mapping path)]
+       (assoc relation
+         :mapping mapping)))
+   history))
+
+(def note-keys [:note :dur])
+
+(defn note-predictions
+  [book number history]
+  (into
+   {}
+   (map
+    (fn [key]
+      (let [occam (occamize-history book number history key)]
+        [key (merge-fit-mapping occam)]))
+    note-keys)))
+
+(defn predict-note
+  [predictions states]
+
+
+
+
+
+
 
 (defn note-generator
   [occam mapping]
@@ -632,4 +692,4 @@
 
 
 
-;; TODO: markov chain generator based on note data
+;; TODO: chain generator based on note data
