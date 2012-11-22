@@ -136,6 +136,12 @@
   [sequencer]
   (.close sequencer))
 
+(defn play-sequence
+  [midi]
+  (let [sequencer (open-sequence midi)]
+    (start-sequence sequencer)
+    #(close-sequence sequencer)))
+
 ;; extracting note data from midi files -------------------------------------
 
 (defn extract-data
@@ -366,13 +372,16 @@
     (- (get a k) (get b k))
     0))
 
+(def relative-cutoff 11)
+
 (defn surrounding-notes
   [note preceding continuing peers]
-  (let [closest (find-min <
-                 #(Math/abs (- (:note note) (:note %)))
-                 (concat preceding continuing))]
+  (let [distance (comp #(Math/abs %) (partial note-difference :note note))
+        closest (find-min < distance
+                 (concat preceding continuing))
+        between (distance closest)]
     (assoc note
-      :closest [(:id closest)]
+      :closest (if (< between relative-cutoff) [(:id closest)])
       :preceding (map :id preceding)
       :during (map :id (concat continuing peers))
       :wait (note-difference :begin note closest)
@@ -404,7 +413,8 @@
 
 (defn cluster-duration
   [notes]
-  (sort-by :begin (cluster/cluster-by notes note-metric 7 :dur)))
+  (let [cluster (cluster/cluster-by notes note-metric 7 :dur)]
+    (update-in cluster [:restored] (partial sort-by :begin))))
 
 (defn fugue-coincidents
   [book number]
@@ -517,7 +527,7 @@
 
 (defn fugue-interrelation
   [book number history]
-  (let [fugue (fugue-coincidents book number)
+  (let [{fugue :restored durs :averages} (fugue-coincidents book number)
         chains (build-chains fugue)
         note-gestures (extract-gestures fugue chains history :note)
         dur-gestures (extract-gestures fugue chains history :dur)
@@ -526,6 +536,7 @@
      :number number
      :history history
      :chains chains
+     :durs durs
      :gestures {:note note-gestures :dur dur-gestures}
      :relations referents}))
 
@@ -626,24 +637,28 @@
                      gesture)
         dependent (map (comp list #(- % minimum-dependent) last) gesture)
         data (map concat independent dependent)]
-    (make-header data)))
+    [minimum-independent
+     minimum-dependent
+     (make-header data)]))
 
 (defn occamize-chains
   [book number history key]
   (let [relations (fugue-interrelation book number history)
-        occam (occam-interrelation relations key)
+        [ifloor dfloor occam] (occam-interrelation relations key)
         path (chain-path book number history key :in)]
     (occam/write-occam path occam)
     (assoc relations
       :occam occam
-      :key key)))
+      :key key
+      :independent-floor ifloor
+      :dependent-floor dfloor)))
 
 (defn occamize-history
   [book number history key]
   (map 
    (fn [slice]
      (occamize-chains book number slice key))
-   (reverse (range 1 (inc history)))))
+   (range 1 (inc history))))
 
 ;; note generation --------------------------------------
 
@@ -665,31 +680,125 @@
    history))
 
 (def note-keys [:note :dur])
-
-(defn note-predictions
-  [book number history]
+(defn map-note-keys
+  [keyf]
   (into
    {}
    (map
     (fn [key]
-      (let [occam (occamize-history book number history key)]
-        [key (merge-fit-mapping occam)]))
+      [key (keyf key)])
     note-keys)))
+
+(defn note-predictions
+  [book number history]
+  (map-note-keys
+   (fn [key]
+     (let [occam (occamize-history book number history key)]
+       (merge-fit-mapping occam)))))
+
+(defn predict-state
+  [predictions key states]
+  (loop [states states]
+    (if (empty? states)
+      0
+      (let [index (-> states count dec)
+            portal (-> predictions key (nth index))
+            floor (:independent-floor portal)
+            shifted (map #(- % floor) states)
+            prediction (fit/produce-state (:mapping portal) shifted)]
+        (if prediction
+          (+ prediction (:dependent-floor portal))
+          (recur (rest states)))))))
 
 (defn predict-note
   [predictions states]
-  )
+  (map-note-keys
+   (fn [key]
+     (predict-state predictions key (get states key)))))
 
+(defn pivot-trail
+  [trail]
+  (let [pivot (first trail)]
+    (map #(- % pivot) trail)))
 
+(defn align-trail
+  [trail]
+  (map-note-keys
+   (fn [key]
+     (let [align (comp reverse pivot-trail (partial map key))]
+       (align trail)))))
 
+(def note-bounds 12)
+(def octave 12)
 
+(defn bound-note
+  [note seed]
+  (cond
+   (> note (+ seed note-bounds)) (- note octave)
+   (< note (- seed note-bounds)) (+ note octave)
+   :else note))
 
+(defn evolve-note
+  [child parent seed]
+  (let [{note :note dur :dur}
+        (map-note-keys
+         (fn [key]
+           (+ (get child key) (get parent key))))
+        note (bound-note note (:note (first seed)))
+        dur (mod dur 7)]
+    {:note note :dur dur}))
 
 (defn note-generator
-  [occam mapping]
-  )
+  [predictions history seed]
+  (iterate
+   (fn [notes]
+     (let [trail (take history notes)
+           present (first trail)
+           states (align-trail trail)
+           prediction (predict-note predictions states)
+           note (evolve-note prediction present seed)]
+       (cons note notes)))
+   seed))
 
+(defn voice-generator
+  [book number history seed]
+  (let [predictions (note-predictions book number history)]
+    {:predictions predictions
+     :generator (note-generator predictions history seed)}))
 
+(defn render-notes
+  [voice predictions]
+  (loop [voice voice
+         notes nil
+         time 0]
+    (if (empty? voice)
+      notes
+      (let [{tone :note dur :dur} (first voice)
+            durs [50 100 150 200 300 400 800] ;; (-> predictions :dur first :durs)
+            ;; _ (println durs)
+            duration (nth durs dur)
+            span (+ time duration)
+            note {:note tone :begin time :end span}]
+        (recur (rest voice) (cons note notes) span)))))
 
+(defn generate-notes
+  [generator num]
+  (let [voice (last (take num (:generator generator)))]
+    (render-notes voice (:predictions generator))))
 
-;; TODO: chain generator based on note data
+(defn generate-voice
+  [num book number history seed]
+  (let [generator (voice-generator book number history seed)]
+    (generate-notes generator num)))
+
+(defn sequence-voice
+  [num book number history seed]
+  (let [voice (generate-voice num book number history seed)]
+    (note-sequence voice)))
+
+(def later
+  (map
+   (fn [note]
+     {:note (- (:note note) 19) :begin (+ (:begin note) 1600) :end (+ (:end note) 1600)})
+   voice))
+
