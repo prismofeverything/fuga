@@ -796,9 +796,9 @@
   (let [voice (generate-voice num book number history seed)]
     (note-sequence voice)))
 
-(def later
-  (map
-   (fn [note]
-     {:note (- (:note note) 19) :begin (+ (:begin note) 1600) :end (+ (:end note) 1600)})
-   voice))
+;; (def later
+;;   (map
+;;    (fn [note]
+;;      {:note (- (:note note) 19) :begin (+ (:begin note) 1600) :end (+ (:end note) 1600)})
+;;    voice))
 
