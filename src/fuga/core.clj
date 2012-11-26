@@ -142,6 +142,10 @@
     (start-sequence sequencer)
     #(close-sequence sequencer)))
 
+(defn get-synthesizer
+  []
+  (MidiSystem/getSynthesizer))
+
 ;; extracting note data from midi files -------------------------------------
 
 (defn extract-data
@@ -172,11 +176,21 @@
     (.setMessage message command (:channel event) data1 data2)
     (MidiEvent. message (:tick event))))
 
+(defn patch-event
+  [instrument channel]
+  (println instrument channel)
+  {:command :PATCH
+   :channel channel
+   :tick 0
+   :data [instrument 0]})
+
 (defn midi-sequence
-  [events]
+  [instrument events]
   (let [sequence (Sequence. 0 240)
-        track (.createTrack sequence)]
-    (doseq [event events]
+        track (.createTrack sequence)
+        programs (map (partial patch-event instrument) (range 16))
+        score (concat programs events)]
+    (doseq [event score]
       (.add track (midi-event event)))
     sequence))
 
@@ -238,9 +252,12 @@
 
 ;; turn notes back into a midi sequence ---------------------------
 
+(def velocity-default 72)
+
 (defn note-events
   [note channel]
-  (let [on {:command :ON :tick (:begin note) :data [(:note note) 127] :channel channel}
+  (let [velocity (or (:velocity note) velocity-default)
+        on {:command :ON :tick (:begin note) :data [(:note note) velocity] :channel channel}
         off {:command :OFF :tick (:end note) :data [(:note note) 0] :channel channel}]
     [on off]))
 
@@ -272,7 +289,10 @@
          (concat midi (note-events note channel))))
       midi)))
 
-(def note-sequence (comp midi-sequence midi-notes))
+(defn note-sequence
+  [instrument notes]
+  ((comp (partial midi-sequence instrument) midi-notes) notes))
+  ;; (comp midi-sequence midi-notes))
 
 ;; process notes into basic harmonic relations -----------------------
 
@@ -766,39 +786,89 @@
     {:predictions predictions
      :generator (note-generator predictions history seed)}))
 
+(defn linear-durs
+  [pulse]
+  (iterate #(+ % pulse) pulse))
+
+(defn power-durs
+  [base]
+  (iterate #(* % 2) base))
+
+(def pulse 25)
+
 (defn render-notes
   [voice predictions]
   (loop [voice voice
          notes nil
          time 0]
     (if (empty? voice)
-      notes
+      (reverse notes)
+      ;; (reverse notes)
       (let [{tone :note dur :dur} (first voice)
-            durs [50 100 150 200 300 400 800] ;; (-> predictions :dur first :durs)
-            ;; _ (println durs)
+            ;; durs [70 70 140 140 140 280 280]
+            durs [50 50 50 100 100 200 400]
+            ;; durs (take 7 (power-durs pulse)) ;; (linear-durs pulse))
+            ;; durs (-> predictions :dur first :durs)
             duration (nth durs dur)
             span (+ time duration)
-            note {:note tone :begin time :end span}]
+            velocity (+ 40 (* (inc dur) 5))
+            note {:note tone :begin time :end span :velocity velocity}]
         (recur (rest voice) (cons note notes) span)))))
 
 (defn generate-notes
   [generator num]
-  (let [voice (last (take num (:generator generator)))]
-    (render-notes voice (:predictions generator))))
+  (let [generate (comp reverse last (partial take num) :generator)
+        voice (generate generator)
+        notes (render-notes voice (:predictions generator))]
+    (println voice)
+    {:notes notes :generator (update-in generator [:generator] (partial drop num))}))
 
-(defn generate-voice
-  [num book number history seed]
-  (let [generator (voice-generator book number history seed)]
-    (generate-notes generator num)))
+(defn shift-note
+  [note {tone :note begin :begin}]
+  (let [time-shift (partial + begin)]
+    (-> note
+        (update-in [:note] (partial + tone))
+        (update-in [:begin] time-shift)
+        (update-in [:end] time-shift))))
 
-(defn sequence-voice
-  [num book number history seed]
-  (let [voice (generate-voice num book number history seed)]
-    (note-sequence voice)))
+(defn shift-notes
+  [notes shift]
+  (map #(shift-note % shift) notes))
 
-;; (def later
-;;   (map
-;;    (fn [note]
-;;      {:note (- (:note note) 19) :begin (+ (:begin note) 1600) :end (+ (:end note) 1600)})
-;;    voice))
+(defn generate-sequence
+  [generator num instrument]
+  (let [notes (:notes (generate-notes generator num))]
+    (note-sequence instrument notes)))
 
+(def play-voice (comp play-sequence generate-sequence))
+(def play-notes (comp play-sequence note-sequence))
+
+(defn merge-notes
+  [groups]
+  (sort-by :begin (apply concat groups)))
+
+(defn layer-notes
+  [notes layers]
+  (let [layering (map (partial shift-notes notes) layers)
+        complete (cons notes layering)]
+    (merge-notes complete)))
+
+(defn regular-layering
+  [bases delay]
+  (let [[layers begin]
+        (reduce
+         (fn [[layers begin] base]
+           [(cons {:note base :begin begin} layers) (+ begin delay)])
+         [nil delay]
+         bases)]
+    #(layer-notes % layers)))
+
+(defn write-notes
+  [notes filename]
+  (spit filename notes))
+
+(defn read-notes
+  [filename]
+  (read-string (slurp filename)))
+
+(def good-sounds [21 48 69 70 72 73 91])
