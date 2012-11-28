@@ -5,7 +5,8 @@
             [occam.csv :as csv]
             [occam.core :as occam]
             [occam.cluster :as cluster]
-            [occam.fit :as fit])
+            [occam.fit :as fit]
+            [fuga.tones :as tones])
   (:import (javax.sound.midi MidiSystem MidiEvent Sequence Sequencer ShortMessage)))
 
 (defn invert-map
@@ -870,5 +871,18 @@
 (defn read-notes
   [filename]
   (read-string (slurp filename)))
+
+(defn full-circle
+  [& {:keys [book fugue num seed layering tonality speed]
+    :or {book 1 fugue 4 num 333 speed 2
+         seed [{:note 61 :dur 5}]
+         layering [-14 14 -28]
+         tonality tones/tonal}}]
+  (let [voice (voice-generator book fugue 3 seed)
+        layer (regular-layering layering 3200)
+        generator (generate-notes voice num)
+        notes (-> generator :notes layer)]
+    (tones/play-gates notes :tonality tonality :speed speed)
+    generator))
 
 (def good-sounds [21 48 69 70 72 73 91])

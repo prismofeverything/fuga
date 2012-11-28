@@ -2,6 +2,8 @@
   (:use [overtone.core])
   (:require [tonality.tonality :as tonality]))
 
+;; (boot-server)
+
 (def dull-partials
   [0.56
    0.92
@@ -50,59 +52,90 @@
     (detect-silence snd :action FREE)
     snd))
 
-(defn play-tones
-  [inst tones]
-  (let [pool (mk-pool)]
-    (doseq [tone tones]
+;; (definst bell
+;;   [freq 220
+;;    dur 1.0
+;;    vol 1.0
+;;    partials [0.5 1 2 4]]
+;;   (let [snd (* vol (bell-partials freq dur partials))]
+;;     (detect-silence snd :action FREE)
+;;     snd))
+
+(def twelve
+  (tonality/tonality
+   (tonality/equal-temperament 12)
+   20.0 0))
+
+(def tonal
+  (tonality/tonality
+   [1/1 16/15 9/8 9/8 5/4 5/4 4/3 4/3 3/2 8/5 5/3 5/3 15/8 15/8]
+   15.0 0))
+
+(definst b3
+  [freq 60 amp 0.8 gate 1.0 a 0.01 d 3 s 1 r 0.01]
+  (let [waves (sin-osc [(* 0.5 freq)
+                        freq
+                        (* (/ 3 2) freq)
+                        (* 2 freq)
+                        (* freq 2 (/ 3 2))
+                        (* freq 2 2)
+                        (* freq 2 2 (/ 5 4))
+                        (* freq 2 2 (/ 3 2))
+                        (* freq 2 2 (/ 7 4))
+                        (* freq 2 2 2)])
+        snd (apply + waves)
+        env (env-gen (adsr a d s r) gate :action FREE)]
+    (* amp env snd 0.1)))
+
+(defn play-moments
+  "The notes must already have been partitioned into groups which all share :begin"
+  [f moments start speed]
+  (if-not (empty? moments)
+    (let [moment (first moments)
+          future (rest moments)
+          begin (-> moment first :begin (* speed))
+          next (-> future first first :begin (* speed))]
       (at
-       (:begin tone)
-       (fn []
-         (dull-bell ))))))
+       (+ start begin)
+       (dorun
+        (map f moment)))
+      (if next
+        (apply-at
+         (+ start next)
+         #'play-moments
+         [f future start speed])))))
 
-;; (def bell-metro  (metronome 400))
-;; (def kije-troika-intervals
-;;   (let [_ nil]
-;;     [[ :i++ :v++ ]
-;;      [ :i :i ]
-;;      [_     _    _     _    _     _   _   _
-;;       _     _    _     _    _     _  :v   _
-;;       :i+  :vii  :vi  :vii  :i+   _  :vi  _
-;;       :v    _     :vi  _   :iii   _  :v   _
-;;       :vi  :v     :iv  _   :i+   _   :vii :i+
-;;       :v   _      _    _   _     _   :iv  :iii
-;;       :ii  _      :vi  _  :v     _   :iv  _   :v :iv
-;;       :iii :iv    :v   _  :i+   :vi :iv  _   :iii  :iv :v _ :v _ :i ]]))
-
-;; (def troika-hz
-;;   "Map all nested kije troika intervals to hz using the major scale with root C5"
-;;   (let [scale [:major :C5]]
-;;     (letfn [(intervals->hz [intervals]
-;;               (map #(when % (midi->hz %)) (apply degrees->pitches intervals scale)))]
-;;       (map intervals->hz kije-troika-intervals))))
-
-;; ;; Plays the tune endlessly
-;; (defn play-bells
-;;   "Recursion through time over an sequence of infinite sequences of hz notes
-;;   (or nils representing rests) to play with the pretty bell at the specific
-;;   time indicated by the metronome"
-;;   [beat notes]
-;;   (let [next-beat     (inc beat)
-;;         notes-to-play (remove nil? (map first notes))]
-;;     (at (bell-metro beat)
-;;         (dorun
-;;          (map #(pretty-bell % :vol 0.5) notes-to-play)))
-;;     (apply-at (bell-metro next-beat) #'play-bells [next-beat (map rest notes)])))
-
-;; ;; Start the bells ringing...
-;; (defn runner
-;;   "Start up the play-bells recursion with a repeating troika melody and bassline"
-;;   []
-;;   (play-bells (bell-metro) (map cycle troika-hz)))
-
-;; ;; (pretty-bell 440) ;; sounds a bit woodblock
-;; ;; (pretty-bell 2000 7.00) ;; diiiiiiiiinnng
-;; ;; (dull-bell 600 5.0) ;;  ddddddonnnngg
-;; ;; (runner) ;; happy xmas
-;; ;; (stop)
-
-
+(defn play-tones
+  [tones & {:keys [inst tonality speed]
+            :or {inst dull-bell
+                 tonality twelve
+                 speed 1}}]
+  (let [start (now)
+        moments (partition-by :begin tones)]
+    (play-moments
+     (fn [tone]
+       (let [begin (:begin tone)
+             end (:end tone)
+             dur (* speed 0.001 (- end begin))
+             freq (-> tone :note tonality)
+             vol (-> tone :velocity (* 0.01))]
+         (inst freq dur vol)))
+     moments start speed)))
+        
+(defn play-gates
+  [tones & {:keys [inst tonality speed]
+            :or {inst b3
+                 tonality twelve
+                 speed 1}}]
+  (let [start (now)
+        moments (partition-by :begin tones)]
+    (play-moments
+     (fn [tone]
+       (let [end (:end tone)
+             freq (-> tone :note (tonality (:begin tone)))
+             amp (-> tone :velocity (* 0.01))
+             synth (inst :freq freq :amp amp)]
+         (at
+          (+ start (* end speed))
+          (ctl synth :gate 0))))
+     moments start speed)))
