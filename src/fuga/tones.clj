@@ -1,5 +1,6 @@
 (ns fuga.tones
-  (:use [overtone.core]))
+  (:use [overtone.core])
+  (:require [tonality.tonality :as tonality]))
 
 (def dull-partials
   [0.56
@@ -49,48 +50,59 @@
     (detect-silence snd :action FREE)
     snd))
 
-(def bell-metro  (metronome 400))
-(def kije-troika-intervals
-  (let [_ nil]
-    [[ :i++ :v++ ]
-     [ :i :i ]
-     [_     _    _     _    _     _   _   _
-      _     _    _     _    _     _  :v   _
-      :i+  :vii  :vi  :vii  :i+   _  :vi  _
-      :v    _     :vi  _   :iii   _  :v   _
-      :vi  :v     :iv  _   :i+   _   :vii :i+
-      :v   _      _    _   _     _   :iv  :iii
-      :ii  _      :vi  _  :v     _   :iv  _   :v :iv
-      :iii :iv    :v   _  :i+   :vi :iv  _   :iii  :iv :v _ :v _ :i ]]))
+(defn play-tones
+  [inst tones]
+  (let [pool (mk-pool)]
+    (doseq [tone tones]
+      (at
+       (:begin tone)
+       (fn []
+         (dull-bell ))))))
 
-(def troika-hz
-  "Map all nested kije troika intervals to hz using the major scale with root C5"
-  (let [scale [:major :C5]]
-    (letfn [(intervals->hz [intervals]
-              (map #(when % (midi->hz %)) (apply degrees->pitches intervals scale)))]
-      (map intervals->hz kije-troika-intervals))))
+;; (def bell-metro  (metronome 400))
+;; (def kije-troika-intervals
+;;   (let [_ nil]
+;;     [[ :i++ :v++ ]
+;;      [ :i :i ]
+;;      [_     _    _     _    _     _   _   _
+;;       _     _    _     _    _     _  :v   _
+;;       :i+  :vii  :vi  :vii  :i+   _  :vi  _
+;;       :v    _     :vi  _   :iii   _  :v   _
+;;       :vi  :v     :iv  _   :i+   _   :vii :i+
+;;       :v   _      _    _   _     _   :iv  :iii
+;;       :ii  _      :vi  _  :v     _   :iv  _   :v :iv
+;;       :iii :iv    :v   _  :i+   :vi :iv  _   :iii  :iv :v _ :v _ :i ]]))
 
-;; Plays the tune endlessly
-(defn play-bells
-  "Recursion through time over an sequence of infinite sequences of hz notes
-  (or nils representing rests) to play with the pretty bell at the specific
-  time indicated by the metronome"
-  [beat notes]
-  (let [next-beat     (inc beat)
-        notes-to-play (remove nil? (map first notes))]
-    (at (bell-metro beat)
-        (dorun
-         (map #(pretty-bell % :vol 0.5) notes-to-play)))
-    (apply-at (bell-metro next-beat) #'play-bells [next-beat (map rest notes)])))
+;; (def troika-hz
+;;   "Map all nested kije troika intervals to hz using the major scale with root C5"
+;;   (let [scale [:major :C5]]
+;;     (letfn [(intervals->hz [intervals]
+;;               (map #(when % (midi->hz %)) (apply degrees->pitches intervals scale)))]
+;;       (map intervals->hz kije-troika-intervals))))
 
-;; Start the bells ringing...
-(defn runner
-  "Start up the play-bells recursion with a repeating troika melody and bassline"
-  []
-  (play-bells (bell-metro) (map cycle troika-hz)))
+;; ;; Plays the tune endlessly
+;; (defn play-bells
+;;   "Recursion through time over an sequence of infinite sequences of hz notes
+;;   (or nils representing rests) to play with the pretty bell at the specific
+;;   time indicated by the metronome"
+;;   [beat notes]
+;;   (let [next-beat     (inc beat)
+;;         notes-to-play (remove nil? (map first notes))]
+;;     (at (bell-metro beat)
+;;         (dorun
+;;          (map #(pretty-bell % :vol 0.5) notes-to-play)))
+;;     (apply-at (bell-metro next-beat) #'play-bells [next-beat (map rest notes)])))
 
-;; (pretty-bell 440) ;; sounds a bit woodblock
-;; (pretty-bell 2000 7.00) ;; diiiiiiiiinnng
-;; (dull-bell 600 5.0) ;;  ddddddonnnngg
-;; (runner) ;; happy xmas
-;; (stop)
+;; ;; Start the bells ringing...
+;; (defn runner
+;;   "Start up the play-bells recursion with a repeating troika melody and bassline"
+;;   []
+;;   (play-bells (bell-metro) (map cycle troika-hz)))
+
+;; ;; (pretty-bell 440) ;; sounds a bit woodblock
+;; ;; (pretty-bell 2000 7.00) ;; diiiiiiiiinnng
+;; ;; (dull-bell 600 5.0) ;;  ddddddonnnngg
+;; ;; (runner) ;; happy xmas
+;; ;; (stop)
+
+

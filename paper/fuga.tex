@@ -1,0 +1,42 @@
+\title{Generating Fugal Sequences with Clojure, Occam and Reconstructability Analysis}
+\author{Ryan Spangler}
+\date{\today}
+
+\documentclass[11pt]{article}
+
+\usepackage{commath}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{amsfonts}
+
+% python highlighting ----------
+\usepackage{color}
+\usepackage{listings}
+\usepackage{textcomp}
+\usepackage{setspace}
+\usepackage{hyperref}
+%\usepackage{palatino}
+
+%\doublespacing
+
+\setcounter{secnumdepth}{0}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+I have long suspected that Bach's fugues have a high degree of internal relatedness, though I have never had the tools to quantify that until now.  This project is a journey to define just how internally related Bach's fugues are, using the means at my disposal (namely Occam and Clojure, along with the theory behind RA).  It is an attempt to not just analyze, but also to generate new fugues using the form of old ones.  Given the scores of Bach's fugues (48 in all), I tease apart the separate lines into sequences of notes and use these sequences to form predictions about what the next note is, given a series of previous notes.  Applying these predictions iteratively to a seed note generates new sequences of notes, which can then be layered and played back.  Two supporting Clojure libraries have sprung from this project, \href{http://github.com/prismofeverything/occam}{occam} (the clojure version!) and \href{http://github.com/prismofeverything/fuga}{fuga}.  These are open source projects anyone can use to analyze midi files and generate fugues of their own, which I discuss in the next section.  
+
+\section{Methods}
+
+
+
+\section{Results}
+
+\section{Discussion}
+
+\section{Conclusion}
+
+\end{document}  
+
