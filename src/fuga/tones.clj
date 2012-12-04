@@ -71,6 +71,12 @@
    [1/1 16/15 9/8 9/8 5/4 5/4 4/3 4/3 3/2 8/5 5/3 5/3 15/8 15/8]
    15.0 0))
 
+(definst sinon
+  [freq 400 amp 0.8 gate 1.0 a 0.01 d 3 s 1 r 0.01]
+  (let [psi (sin-osc freq)
+        env (env-gen (adsr a d s r) gate :action FREE)]
+    (* amp env psi)))
+
 (definst b3
   [freq 60 amp 0.8 gate 1.0 a 0.01 d 3 s 1 r 0.01]
   (let [waves (sin-osc [(* 0.5 freq)
