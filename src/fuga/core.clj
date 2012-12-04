@@ -143,6 +143,11 @@
     (start-sequence sequencer)
     #(close-sequence sequencer)))
 
+(defn write-sequence
+  [midi filename]
+  (let [output (io/file filename)]
+    (MidiSystem/write midi 1 output)))
+
 (defn get-synthesizer
   []
   (MidiSystem/getSynthesizer))
@@ -884,9 +889,11 @@
   (let [voice (voice-generator book fugue 3 seed)
         layer (regular-layering layering 3200)
         generator (generate-notes voice num)
-        notes (-> generator :notes layer)]
+        notes (-> generator :notes layer)
+        sequence (note-sequence instrument notes)]
     ;; (if midi?
-      (assoc generator :stop (play-notes instrument notes))))
+    (write-sequence sequence (str "midi/book-" book "-fugue-" fugue "-" (rand-int 1000000) ".mid"))
+    (assoc generator :stop (play-sequence sequence)))) ;; instrument notes))))
       ;; (do
       ;;   (tones/play-gates notes :inst inst :tonality tonality :speed speed)
       ;;   generator))))
