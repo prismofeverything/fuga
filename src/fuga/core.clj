@@ -764,6 +764,14 @@
    (< note (- seed note-bounds)) (+ note octave)
    :else note))
 
+(defn reflect
+  [n base]
+  (let [modulus (mod (Math/abs n) base)
+        reflect? (odd? (quot n base))]
+    (if reflect?
+      (- base modulus)
+      modulus)))
+
 (defn evolve-note
   [child parent seed]
   (let [{note :note dur :dur}
@@ -771,7 +779,8 @@
          (fn [key]
            (+ (get child key) (get parent key))))
         note (bound-note note (:note (first seed)))
-        dur (mod dur 7)]
+        dur (reflect dur 6)]
+        ;; dur (mod dur 7)]
     {:note note :dur dur}))
 
 (defn note-generator
