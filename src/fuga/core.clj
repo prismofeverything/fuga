@@ -152,6 +152,12 @@
   []
   (MidiSystem/getSynthesizer))
 
+(defn play-midi-file
+  [path]
+  (let [data (io/file path)
+        midi (read-midi data)]
+    (play-sequence midi)))
+
 ;; extracting note data from midi files -------------------------------------
 
 (defn extract-data
@@ -908,3 +914,18 @@
       ;;   generator))))
 
 (def good-sounds [21 48 69 70 72 73 91])
+
+(defn operator-staircase
+  []
+  (iterate
+   (fn [f]
+     (fn [a b]
+       (loop [bottom b
+              result a]
+         (if (>= 0 bottom)
+           result
+           (recur
+            (dec bottom)
+            (f a result))))))
+   (fn [a b]
+     (inc b))))
